@@ -2,10 +2,10 @@ package SMS::Send::Arena::Driver;
 #use Modern::Perl; #Can't use this since SMS::Send uses hash keys starting with _
 use SMS::Send::Driver ();
 use LWP::Curl;
-use LWP::UserAgent;
 use URI::Escape;
-use C4::Context;
 use Encode;
+use Koha::Notice::Messages;
+use Koha::Libraries;
 
 use Try::Tiny;
 
@@ -48,11 +48,35 @@ sub new {
         # Create the object
         my $self = bless {}, $class;
 
-        $self->{UserAgent} = LWP::UserAgent->new(timeout => 5);
         $self->{_login} = $username;
         $self->{_password} = $password;
+        $self->{_baseUrl} = $baseUrl;
+        $self->{_deliveryUrl} = $params->{_deliveryUrl};
+        $self->{_clientId} = $params->{_clientId};
 
         return $self;
+}
+
+sub _get_arena_clientId {
+    my ($config, $message_id) = @_;
+    my $clientid;
+
+    if (ref($config) eq "HASH") {
+        my $notice = Koha::Notice::Messages->find($message_id);
+        my $library = Koha::Libraries->search({branchemail => $notice->{from_address}});
+        my %clientIds = $config;
+        my $lib3 = substr($library->branchcode, 0, 3);
+        foreach $key (keys %clientIds) {
+            if ($key eq $library->branchcode) {
+                $clientid = $clientIds{$key};
+            } elsif ($key eq $lib3) {
+                $clientid = $clientIds{$key};
+            }
+        }
+    } else {
+        $clientid = $config;
+    }
+    return $clientid;
 }
 
 sub send_sms {
@@ -61,7 +85,8 @@ sub send_sms {
     my $message = $params->{text};
     my $recipientNumber = $params->{to};
 
-    my $clientid = _get_arena_config($branch, 'clientid');
+    my $clientid = _get_arena_clientId($self->{_clientId}, $params->{_message_id});
+    
 
     if (! defined $message ) {
         warn "->send_sms(text) must be defined!";
@@ -81,7 +106,7 @@ sub send_sms {
     $recipientNumber =~ s/'//g;
     $message =~ s/(")|(\$\()|(`)/\\"/g; #Sanitate " so it won't break the system( iconv'ed curl command )
 
-    my $base_url = _get_arena_config($branch, 'sendUrl') || 'https://api.arena.fi/input/smsout/v1/e1/';
+    my $base_url = $self->{_baseUrl};
     my $parameters = {
         'l'         => $self->{_login},
         'p'         => $self->{_password},
@@ -90,25 +115,8 @@ sub send_sms {
         'clientid'  => $clientid,
     };
 
-    # check if we need to use unicode
-    #  -> if unicode => yes, maxlength for 1 sms = 70 chars
-    #  -> else maxlenght = 160 chars (140 bytes, GSM 03.38)
-    my $gsm0388 = decode("gsm0338",encode("gsm0338", $message));
-
-    if ($message ne $gsm0388 and _get_arena_config($branch, 'Unicode') eq "yes"){
-        $parameters->{'unicode'} = 'yes';
-        my $notice = Koha::Notice::Messages->find($params->{_message_id});
-        $notice->set({ metadata   => 'UTF-16' })->store if defined $notice;
-    } else {
-        #$parameters->{'unicode'} = 'no';
-    }
-
-    my $report_url = _get_arena_config($branch, 'reportUrl');
-    if ($report_url) {
-        my $msg_id = $params->{_message_id};
-        $parameters->{'dlrurl'} = $report_url;
-        $report_url =~ s/\{message_id\}|\{messagenumber\}/$msg_id/g;
-        $parameters->{'report'} = $report_url;
+    if ($self->{_deliveryUrl}) {
+        $parameters->{'dlrurl'} = $self->{_deliveryUrl};
     }
 
     my $lwpcurl = LWP::Curl->new();
