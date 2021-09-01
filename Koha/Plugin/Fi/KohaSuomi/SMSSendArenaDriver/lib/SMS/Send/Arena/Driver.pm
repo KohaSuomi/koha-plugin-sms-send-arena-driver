@@ -63,14 +63,12 @@ sub _get_arena_clientId {
 
     if (ref($config) eq "HASH") {
         my $notice = Koha::Notice::Messages->find($message_id);
-        my $library = Koha::Libraries->search({branchemail => $notice->{from_address}});
-        my %clientIds = $config;
-        my $lib3 = substr($library->branchcode, 0, 3);
+        my $library = Koha::Libraries->find({branchemail => $notice->{from_address}});
+        my %clientIds = %{$config};
         foreach $key (keys %clientIds) {
             if ($key eq $library->branchcode) {
                 $clientid = $clientIds{$key};
-            } elsif ($key eq $lib3) {
-                $clientid = $clientIds{$key};
+                last;
             }
         }
     } else {
@@ -122,7 +120,7 @@ sub send_sms {
     my $lwpcurl = LWP::Curl->new();
     my $return;
     try {
-        $return = $lwpcurl->post($baseUrl, $parameters);
+        $return = $lwpcurl->post($base_url, $parameters);
     } catch {
         if ($_ =~ /Couldn't resolve host name \(6\)/) {
             die "Connection failed";
