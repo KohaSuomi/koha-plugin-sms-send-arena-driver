@@ -63,7 +63,7 @@ sub _get_arena_clientId {
 
     if (ref($config) eq "HASH") {
         my $notice = Koha::Notice::Messages->find($message_id);
-        my $library = Koha::Libraries->find({branchemail => $notice->{from_address}});
+        my $library = Koha::Libraries->find({branchemail => $notice->from_address});
         my %clientIds = %{$config};
         foreach $key (keys %clientIds) {
             if ($key eq $library->branchcode) {
